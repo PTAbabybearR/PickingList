@@ -30,11 +30,11 @@ export async function recognizeWithGemini(images: Buffer[]): Promise<Extraction>
     model,
     messages: [{ role: "user", content }],
     response_format: { type: "json_object" },
-    max_tokens: 8192,
+    max_tokens: 32768, // gemini 2.5 flash 含思考，输出预算要给足，否则 JSON 被截断
   });
 
   const text = res.choices[0]?.message?.content;
-  if (!text) throw new Error("Gemini 未返回内容");
+  if (!text) throw new Error("Gemini 未返回内容（可能 max_tokens 被思考耗尽）");
 
   return ExtractionSchema.parse(JSON.parse(text));
 }

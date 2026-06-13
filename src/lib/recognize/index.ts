@@ -37,6 +37,7 @@ export async function recognizeManual(manualId: string): Promise<PersistResult> 
   try {
     const pdf = await getStorage().read(manual.pdfKey);
     const { images, totalPages, truncated } = await pdfToImages(pdf, {
+      scale: 3, // 更高清晰度利于读小号剪口号
       maxPages: MAX_PAGES,
     });
     if (truncated) {

@@ -9,17 +9,42 @@
 
 - 产品需求文档：[PRD.md](./PRD.md)
 
-## 技术栈（规划）
+## 技术栈
 
-- Next.js（App Router）+ TypeScript 全栈
-- Postgres + Prisma
-- Anthropic Claude API（多模态 / Vision）做说明书识别
-- Vercel 部署
+- Next.js 16（App Router）+ TypeScript + Tailwind v4
+- Prisma 7 + SQLite（本地 MVP，驱动适配器 better-sqlite3）
+- Anthropic Claude API（`claude-opus-4-8`，原生读 PDF 做结构化提取）
+- 本地文件存储（存储层抽象为适配器，后期可切云存储）
+
+## 本地运行
+
+前置：Node 20+、pnpm（`npm i -g pnpm`）。
+
+```bash
+pnpm install
+cp .env.example .env        # 然后填入 ANTHROPIC_API_KEY 等
+pnpm prisma generate        # 生成 Prisma 客户端
+pnpm prisma db push         # 创建本地 SQLite 库(dev.db)
+pnpm dev                    # http://localhost:3000
+```
+
+常用脚本：`pnpm build`（生产构建）、`pnpm db:studio`（Prisma Studio 看数据）。
+
+## 目录结构
+
+```
+prisma/schema.prisma     数据模型
+src/app/                 页面(首页、/admin 占位)
+src/lib/db.ts            Prisma 客户端
+src/lib/storage/         存储适配器(LocalStorage)
+src/lib/claude/          Claude 客户端 + 提取 Schema + recognize() 占位
+storage/                 本地 PDF 存储(gitignore)
+```
 
 ## 状态
 
-🚧 规划阶段 —— 目前仅含 PRD，代码骨架待初始化。
+🚧 骨架已就绪（构建通过）。待实现：管理员上传/识别/复核/发布、分类浏览、搜索、取件表展示。
 
 ## 注意
 
-⚠️ 切勿提交受版权保护的官方说明书 PDF（已在 `.gitignore` 中忽略 `*.pdf` 与 `/uploads`、`/storage`）。
+⚠️ 切勿提交受版权保护的官方说明书 PDF（`.gitignore` 已忽略 `*.pdf`、`/storage`、`.env`、本地数据库）。

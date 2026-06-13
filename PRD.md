@@ -32,7 +32,9 @@
 |---|---|
 | 模型品类 | 高达 / 机甲模型（Gunpla） |
 | 识别引擎 | 多模态大模型（Claude Vision，直接理解 PDF 页面） |
-| 技术栈 | Next.js 全栈（App Router）+ Postgres + Prisma，Vercel 部署 |
+| 技术栈 | Next.js 全栈（App Router）+ Postgres + Prisma |
+| PDF 存储 | **MVP：本地文件系统**（持久磁盘）；存储层抽象为适配器，后期再切云存储（R2/Supabase 等） |
+| 运行/部署 | **MVP：本地 / 单机自托管**（因本地存 PDF 需持久磁盘；Vercel Serverless 文件系统是临时的，存不住）。云部署留待后期 |
 | 取件表用途 | **整模型零件总表（核心）** + 按步骤分组取件（降级：尽力识别 + 人工补全） |
 | 分类层级 | 等级（HG/RG/MG/PG/SD）→ 作品系列 → 具体型号 |
 | 识别后流程 | **需要人工复核/编辑**（识别结果先进草稿，复核后发布） |
@@ -96,7 +98,7 @@ Grade (等级 HG/RG/MG/PG/SD)
 - 存储到对象存储（Vercel Blob / S3），记录页数。
 
 **F2 多模态大模型识别（核心）**
-- 触发后台任务（托管队列）：把 PDF（R2 签名 URL）直接交给 Claude **原生读取**（无需转图），按约定 JSON Schema 结构化提取：
+- 触发后台任务（MVP 进程内）：把本地 PDF 以 **base64** 直接交给 Claude **原生读取**（无需转图），按约定 JSON Schema 结构化提取：
   - **【核心，准确率优先】** 板件列表（编号、颜色、张数）+ 每板件上的零件（剪口号、数量）——对应总表；
   - **【降级，尽力而为】** 步骤列表（步号、页码、该步用到的零件及数量）——识别难度高（装配示意图而非表格），不追求高准确率，重度依赖人工复核补全。
 - 识别结果写入草稿（status=draft），记录 `recognizeStatus`。
@@ -138,17 +140,18 @@ Grade (等级 HG/RG/MG/PG/SD)
 
 - **前端 + 后端**：Next.js（App Router）+ TypeScript，Server Actions / Route Handlers 提供 API。包管理器用 pnpm。
 - **数据库**：Postgres + Prisma ORM。搜索 MVP 用 `ILIKE` 模糊匹配（型号名/编号/作品名），暂不引入中文分词全文检索。
-- **文件存储（对象存储为准）**：**Cloudflare R2**（S3 兼容、无出流量费）私有 bucket 存 PDF 原件与盒绘图。
-  - 复核界面通过 R2 **签名 URL** 把 PDF 原页展示给管理员（满足"仅管理员可见"）。
-  - 识别时把同一个签名 URL 作为 PDF 源传给 Claude（见下）。**Claude Files API 留作可选降本项**——它能托管文件供模型多次引用，但**用户上传的文件不能下载回前端**，无法独立支撑复核界面，故不作主存储。
+- **文件存储（MVP：本地文件系统）**：PDF 原件与盒绘图存本地持久磁盘，如 `./storage/manuals/{modelKitId}/{manualId}.pdf`（已 `.gitignore` 忽略 `/storage`、`*.pdf`）。
+  - **存储适配器抽象**：定义统一接口 `Storage { put / read / serve / delete }`，MVP 实现 `LocalStorage`；后期换云存储只需新增 `R2Storage`/`SupabaseStorage` 实现并切换，**业务代码不动**。
+  - **复核展示**：管理员看 PDF 原页 → 由一个**鉴权后端路由**从本地磁盘读出文件流给浏览器（替代云存储的签名 URL），仍满足"仅管理员可见"。
+  - **不选 Claude Files API 作主存储**：用户上传的文件不能下载回前端，撑不起复核界面。
 - **识别服务**：Anthropic Claude API，模型默认 **`claude-opus-4-8`**（提取准确率最高；高量产可降级到 `claude-sonnet-4-6`）。
-  - **PDF 原生识别**：Claude 直接读取 PDF 文档（URL / base64 / file_id 源），**无需 PDF→图像转换**（省去 Ghostscript/GraphicsMagick 等原生依赖，利于部署）。单次请求 PDF 有页数/大小上限（约 100 页 / 32MB 量级，开发时按当时官方文档确认），超长说明书分批。
+  - **PDF 原生识别**：Claude 直接读取 PDF，**无需 PDF→图像转换**（省去 Ghostscript/GraphicsMagick 等原生依赖）。本地文件无公网 URL，故以 **base64 文档源**传给 Claude。单次请求 PDF 有页数/大小上限（约 100 页 / 32MB 量级，开发时按当时官方文档确认），超长说明书分批。
   - **结构化输出**：用 `messages.parse()` + Zod（`zodOutputFormat`）对应附录 B 的 Schema，SDK 层自动校验、不符自动重试，免手动解析。
   - **Prompt Caching**：总表 pass 与步骤 pass 是对同一 PDF 的两遍提取，给 document 块加 `cache_control`，第二遍按缓存读计费（~0.1×）降本。
   - 大输出需 streaming（`max_tokens` 较大时）。
-- **后台任务**：识别为异步任务，用**托管队列（Inngest / Trigger.dev）**承载几分钟级长耗时调用，提供重试与状态追踪；前端轮询展示 `recognizeStatus`。（避免 Vercel Serverless 函数执行时长上限的冲突。）
+- **后台任务（MVP：进程内）**：本地单机运行，识别作为**进程内后台任务**异步执行即可，前端轮询 `recognizeStatus`。托管队列（Inngest / Trigger.dev）留待迁移云部署时再引入。
 - **鉴权**：管理员用 NextAuth（单管理员也可简化为凭据 + 签名 Cookie）；普通用户路由无需鉴权。
-- **部署**：Vercel + 托管 Postgres（Neon / Supabase）+ Cloudflare R2 + 托管队列。
+- **运行/部署**：**MVP 本地 / 单机自托管**（需持久磁盘存 PDF）+ 本地或托管 Postgres。云部署（Vercel + 云存储 + 托管队列）留待后期，借助存储适配器平滑迁移。
 
 ---
 
@@ -206,7 +209,7 @@ Grade (等级 HG/RG/MG/PG/SD)
 | 资产 | 版权风险 | 存放位置 |
 |---|---|---|
 | 平台代码 | 无 | **公开 git 仓库**（开源） |
-| 官方 PDF 原件 | 高 | **对象存储**（私有 bucket + 平台鉴权）。**严禁提交进任何 git 仓库**（即使私有）——既因二进制大文件不适合 git，也因上传至第三方仍属复制行为 |
+| 官方 PDF 原件 | 高 | **MVP：本地持久磁盘**（鉴权后端路由才能读取）；后期迁私有对象存储。**严禁提交进任何 git 仓库**（即使私有）——既因二进制大文件不适合 git，也因上传至第三方仍属复制行为 |
 | 提取后的取件表数据 | 低（事实性信息） | **数据库**。MVP 不单独建数据仓库 |
 
 > `.gitignore` 已忽略 `*.pdf`、`/uploads/`、`/storage/`、`.env*` 作为兜底，防止误提交版权内容与密钥。

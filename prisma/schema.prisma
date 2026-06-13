@@ -44,8 +44,7 @@ model ModelKit {
   boxArtKey String? // 盒绘图在存储适配器中的 key
   status    String   @default("draft") // draft | published | archived
   manuals   Manual[]
-  runners   Runner[]
-  steps     Step[]
+  sections  Section[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -67,55 +66,30 @@ model Manual {
   @@index([modelKitId])
 }
 
-// 板件(Runner)：一整块塑料框
-model Runner {
-  id         String   @id @default(cuid())
-  modelKitId String
-  modelKit   ModelKit @relation(fields: [modelKitId], references: [id], onDelete: Cascade)
-  label      String // 板件编号 A / B / C
-  color      String?
-  count      Int      @default(1) // 同款板件张数
-  parts      Part[]
-  createdAt  DateTime @default(now())
+// 部位(Section)：头部 / 胸部 / 手臂 / 腿部 ... —— 取件表以部位为核心组织
+model Section {
+  id          String        @id @default(cuid())
+  modelKitId  String
+  modelKit    ModelKit      @relation(fields: [modelKitId], references: [id], onDelete: Cascade)
+  name        String // 部位名，如 头 / 胸部
+  color       String? // UI 标记色，如 #1E90FF
+  description String?
+  sortOrder   Int           @default(0)
+  parts       SectionPart[]
+  createdAt   DateTime      @default(now())
 
   @@index([modelKitId])
 }
 
-// 零件：板件上某个剪口
-model Part {
-  id        String     @id @default(cuid())
-  runnerId  String
-  runner    Runner     @relation(fields: [runnerId], references: [id], onDelete: Cascade)
-  gateNo    String // 剪口编号，如 A-3
-  quantity  Int        @default(1) // 单张板件上该零件数量
-  note      String?
-  reviewed  Boolean    @default(false) // 是否已人工复核
-  stepParts StepPart[]
+// 部位下的取件项：某板件的某剪口 × 数量
+model SectionPart {
+  id         String  @id @default(cuid())
+  sectionId  String
+  section    Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  runnerName String // 板件名，如 A / B1
+  gateNo     String // 剪口编号，如 26
+  quantity   Int     @default(1)
+  sortOrder  Int     @default(0)
 
-  @@index([runnerId])
-}
-
-// 拼装步骤
-model Step {
-  id         String     @id @default(cuid())
-  modelKitId String
-  modelKit   ModelKit   @relation(fields: [modelKitId], references: [id], onDelete: Cascade)
-  stepNo     Int
-  pageNo     Int?
-  stepParts  StepPart[]
-
-  @@index([modelKitId])
-}
-
-// 步骤-零件映射（多对多 + 用量）
-model StepPart {
-  id       String @id @default(cuid())
-  stepId   String
-  step     Step   @relation(fields: [stepId], references: [id], onDelete: Cascade)
-  partId   String
-  part     Part   @relation(fields: [partId], references: [id], onDelete: Cascade)
-  quantity Int    @default(1)
-
-  @@index([stepId])
-  @@index([partId])
+  @@index([sectionId])
 }

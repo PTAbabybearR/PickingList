@@ -14,31 +14,46 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "识别失败",
 };
 
+type PartLite = { runnerName: string; gateNo: string; quantity: number };
+
+// 自然排序：A, B1, B2, C … / 剪口 2 在 13 前
+function natCmp(a: string, b: string) {
+  return a.localeCompare(b, "en", { numeric: true });
+}
+
+function fmtPart(p: PartLite) {
+  return p.quantity > 1 ? `${p.gateNo}×${p.quantity}` : p.gateNo;
+}
+
 export default async function KitDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ view?: string }>;
 }) {
   const { id } = await params;
+  const { view } = await searchParams;
+  const byRunner = view === "runner";
+
   const kit = await prisma.modelKit.findUnique({
     where: { id },
     include: {
       series: { include: { grade: true } },
       manuals: { orderBy: { createdAt: "desc" } },
-      runners: {
-        orderBy: { label: "asc" },
-        include: { parts: { orderBy: { gateNo: "asc" } } },
+      sections: {
+        orderBy: { sortOrder: "asc" },
+        include: { parts: { orderBy: { sortOrder: "asc" } } },
       },
-      _count: { select: { steps: true } },
     },
   });
 
   if (!kit) notFound();
 
-  // 零件总数 = Σ 板件张数 × 单张数量（PRD 统计口径）
-  const partKinds = kit.runners.reduce((n, r) => n + r.parts.length, 0);
-  const partTotal = kit.runners.reduce(
-    (n, r) => n + r.parts.reduce((m, p) => m + r.count * p.quantity, 0),
+  const sections = kit.sections;
+  const itemCount = sections.reduce((n, s) => n + s.parts.length, 0);
+  const totalQty = sections.reduce(
+    (n, s) => n + s.parts.reduce((m, p) => m + p.quantity, 0),
     0,
   );
 
@@ -64,14 +79,9 @@ export default async function KitDetailPage({
         ) : (
           <ul className="mt-3 divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white">
             {kit.manuals.map((m) => (
-              <li
-                key={m.id}
-                className="flex items-center justify-between gap-3 px-5 py-3"
-              >
+              <li key={m.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div className="min-w-0 text-sm">
-                  <div className="truncate font-mono text-xs text-neutral-500">
-                    {m.pdfKey}
-                  </div>
+                  <div className="truncate font-mono text-xs text-neutral-500">{m.pdfKey}</div>
                   <div className="mt-0.5 text-xs text-neutral-400">
                     {m.createdAt.toLocaleString("zh-CN")}
                     {m.pageCount ? ` · ${m.pageCount} 页` : ""}
@@ -100,52 +110,49 @@ export default async function KitDetailPage({
         <UploadForm modelKitId={kit.id} />
       </section>
 
-      {/* 取件表结果（两种识别方式共用展示，便于对比） */}
+      {/* 取件表（部位为核心，两视图切换） */}
       <section className="mt-12">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">取件表（草稿）</h2>
-          {kit.runners.length > 0 && (
+          {sections.length > 0 && (
             <div className="text-xs text-neutral-500">
-              {kit.runners.length} 板件 · {partKinds} 种零件 · 总数 {partTotal} · 步骤{" "}
-              {kit._count.steps}
+              {sections.length} 部位 · {itemCount} 取件项 · 总数 {totalQty}
             </div>
           )}
         </div>
 
-        {kit.runners.length === 0 ? (
+        {sections.length === 0 ? (
           <p className="mt-2 text-sm text-neutral-500">
             尚无取件表数据。点上方「开始识别」自动识别，或在下方导入 JSON。
           </p>
         ) : (
-          <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200 bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-neutral-50 text-left text-xs text-neutral-500">
-                <tr>
-                  <th className="px-4 py-2">板件</th>
-                  <th className="px-4 py-2">颜色</th>
-                  <th className="px-4 py-2">张数</th>
-                  <th className="px-4 py-2">剪口（数量）</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-100">
-                {kit.runners.map((r) => (
-                  <tr key={r.id} className="align-top">
-                    <td className="px-4 py-2 font-medium">{r.label}</td>
-                    <td className="px-4 py-2 text-neutral-600">{r.color ?? "-"}</td>
-                    <td className="px-4 py-2 text-neutral-600">{r.count}</td>
-                    <td className="px-4 py-2 text-neutral-600">
-                      {r.parts
-                        .map((p) => `${p.gateNo}×${p.quantity}`)
-                        .join("，")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* 视图切换 */}
+            <div className="mt-3 inline-flex rounded-lg border border-neutral-200 bg-white p-0.5 text-sm">
+              <Link
+                href={`/admin/kits/${kit.id}`}
+                className={`rounded-md px-3 py-1 ${!byRunner ? "bg-neutral-900 text-white" : "text-neutral-600"}`}
+              >
+                按部位
+              </Link>
+              <Link
+                href={`/admin/kits/${kit.id}?view=runner`}
+                className={`rounded-md px-3 py-1 ${byRunner ? "bg-neutral-900 text-white" : "text-neutral-600"}`}
+              >
+                按板件
+              </Link>
+            </div>
+
+            <div className="mt-4">
+              {byRunner ? (
+                <RunnerView sections={sections} />
+              ) : (
+                <SectionView sections={sections} />
+              )}
+            </div>
+          </>
         )}
 
-        {/* 手动导入（实验期：由 Claude Code 产出 JSON 后粘贴） */}
         <details className="mt-6 rounded-xl border border-dashed border-neutral-300 bg-white p-4">
           <summary className="cursor-pointer text-sm font-medium text-neutral-700">
             导入识别 JSON（手动 / 实验用）
@@ -157,7 +164,108 @@ export default async function KitDetailPage({
   );
 }
 
-// 上传表单（保留原行为）
+// 按部位：每个部位下按板件分组列出剪口
+function SectionView({
+  sections,
+}: {
+  sections: { id: string; name: string; color: string | null; parts: PartLite[] }[];
+}) {
+  return (
+    <div className="space-y-3">
+      {sections.map((s) => {
+        const byRunner = new Map<string, PartLite[]>();
+        for (const p of s.parts) {
+          if (!byRunner.has(p.runnerName)) byRunner.set(p.runnerName, []);
+          byRunner.get(p.runnerName)!.push(p);
+        }
+        const runners = [...byRunner.keys()].sort(natCmp);
+        return (
+          <div key={s.id} className="rounded-xl border border-neutral-200 bg-white">
+            <div className="flex items-center gap-2 border-b border-neutral-100 px-4 py-2.5">
+              <span
+                className="inline-block h-3 w-3 rounded-full"
+                style={{ background: s.color ?? "#999" }}
+              />
+              <span className="font-medium">{s.name}</span>
+              <span className="text-xs text-neutral-400">
+                {s.parts.reduce((m, p) => m + p.quantity, 0)} 件
+              </span>
+            </div>
+            <div className="space-y-1.5 px-4 py-3 text-sm">
+              {runners.map((rn) => (
+                <div key={rn} className="flex gap-2">
+                  <span className="w-10 shrink-0 font-mono font-medium text-neutral-700">
+                    {rn}
+                  </span>
+                  <span className="text-neutral-600">
+                    {byRunner.get(rn)!.map(fmtPart).join("、")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// 按板件：每块板件下按部位分组列出剪口
+function RunnerView({
+  sections,
+}: {
+  sections: { name: string; color: string | null; parts: PartLite[] }[];
+}) {
+  // runnerName -> [{sectionName, color, parts[]}]
+  const map = new Map<string, { name: string; color: string | null; parts: PartLite[] }[]>();
+  for (const s of sections) {
+    const perRunner = new Map<string, PartLite[]>();
+    for (const p of s.parts) {
+      if (!perRunner.has(p.runnerName)) perRunner.set(p.runnerName, []);
+      perRunner.get(p.runnerName)!.push(p);
+    }
+    for (const [rn, parts] of perRunner) {
+      if (!map.has(rn)) map.set(rn, []);
+      map.get(rn)!.push({ name: s.name, color: s.color, parts });
+    }
+  }
+  const runners = [...map.keys()].sort(natCmp);
+
+  return (
+    <div className="space-y-3">
+      {runners.map((rn) => {
+        const groups = map.get(rn)!;
+        const qty = groups.reduce(
+          (m, g) => m + g.parts.reduce((k, p) => k + p.quantity, 0),
+          0,
+        );
+        return (
+          <div key={rn} className="rounded-xl border border-neutral-200 bg-white">
+            <div className="flex items-center gap-2 border-b border-neutral-100 px-4 py-2.5">
+              <span className="font-mono font-semibold">{rn}</span>
+              <span className="text-xs text-neutral-400">板件 · {qty} 件</span>
+            </div>
+            <div className="space-y-1.5 px-4 py-3 text-sm">
+              {groups.map((g, i) => (
+                <div key={i} className="flex gap-2">
+                  <span className="flex w-16 shrink-0 items-center gap-1 text-neutral-700">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ background: g.color ?? "#999" }}
+                    />
+                    {g.name}
+                  </span>
+                  <span className="text-neutral-600">{g.parts.map(fmtPart).join("、")}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function UploadForm({ modelKitId }: { modelKitId: string }) {
   return (
     <form
@@ -165,13 +273,7 @@ function UploadForm({ modelKitId }: { modelKitId: string }) {
       className="mt-6 flex items-center gap-3 rounded-xl border border-dashed border-neutral-300 bg-white p-5"
     >
       <input type="hidden" name="modelKitId" value={modelKitId} />
-      <input
-        type="file"
-        name="file"
-        accept="application/pdf,.pdf"
-        required
-        className="text-sm"
-      />
+      <input type="file" name="file" accept="application/pdf,.pdf" required className="text-sm" />
       <SubmitButton pendingText="上传中…">上传 PDF</SubmitButton>
     </form>
   );

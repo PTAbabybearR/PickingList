@@ -36,7 +36,7 @@
 | 技术栈 | Next.js 全栈（App Router）+ Postgres + Prisma |
 | PDF 存储 | **MVP：本地文件系统**（持久磁盘）；存储层抽象为适配器，后期再切云存储（R2/Supabase 等） |
 | 运行/部署 | **MVP：本地 / 单机自托管**（因本地存 PDF 需持久磁盘；Vercel Serverless 文件系统是临时的，存不住）。云部署留待后期 |
-| 取件表用途 | **整模型零件总表（核心）** + 按步骤分组取件（降级：尽力识别 + 人工补全） |
+| 取件表组织 | **以「部位」为核心**（头/胸部/手臂/腿部…，参考 dammiz.cn）。两视图：按部位（默认）/ 按板件 |
 | 分类层级 | 等级（HG/RG/MG/PG/SD）→ 作品系列 → 具体型号 |
 | 识别后流程 | **需要人工复核/编辑**（识别结果先进草稿，复核后发布） |
 | 原版 PDF 可见性 | **仅管理员内部可见**（用于识别与复核），不向普通用户展示原页（降低版权风险） |
@@ -59,34 +59,34 @@
 
 > 术语对齐：**板件 = Runner（一整块塑料框）**，板件上每个零件有**剪口编号（Gate No.）**；颜色指该板件/零件的注塑颜色。
 
+> 取件表**以「部位」为核心组织**（参考 dammiz.cn 的方案结构）。说明书本就按部位分章（HEAD/BODY/ARMS/LEGS…），这样组织最贴合实际拼装与取件。
+
 ### 4.1 实体关系
 ```
 Grade (等级 HG/RG/MG/PG/SD)
   └─ Series (作品系列, 如 UC / SEED / 水星的魔女)
-       └─ ModelKit (具体型号, 如 RG RX-78-2 高达)
+       └─ ModelKit (具体型号)
             ├─ Manual (上传的 PDF 说明书 + 识别状态)
-            ├─ Runner (板件: 编号如 A/B/C, 颜色, 数量)
-            │     └─ Part (零件: 剪口编号, 数量, 备注)
-            └─ Step (拼装步骤: 步号, 页码)
-                  └─ StepPart (该步骤需要的零件引用 + 用量)
+            └─ Section (部位: 头/胸部/手臂/腿部…, 含 UI 颜色)
+                  └─ SectionPart (该部位的取件项: 板件名 + 剪口号 + 数量)
 ```
 
-### 4.2 主要表（Prisma 模型草案）
+### 4.2 主要表（Prisma 模型）
 - **Grade**：`id, name, sortOrder`
-- **Series**：`id, gradeId, name, sortOrder`
-- **ModelKit**：`id, seriesId, name, code(型号编号), scale(比例,可选), boxArtUrl, status(draft/published/archived), createdAt`
-- **Manual**：`id, modelKitId, pdfUrl, pageCount, recognizeStatus(pending/processing/done/failed), recognizedAt`
-- **Runner**：`id, modelKitId, label(A/B/C…), color, count(同款板件张数)`
-- **Part**：`id, runnerId, gateNo(剪口号), quantity(单张板件上该零件数量), note`
-- **Step**：`id, modelKitId, stepNo, pageNo`
-- **StepPart**：`id, stepId, partId, quantity`
+- **Series**：`id, gradeId, name, sortOrder`（`@@unique([gradeId,name])`）
+- **ModelKit**：`id, seriesId, name, code, scale, boxArtKey, status(draft/published/archived), createdAt, updatedAt`
+- **Manual**：`id, modelKitId, pdfKey, pageCount, recognizeStatus(pending/processing/done/failed), recognizedAt`
+- **Section**：`id, modelKitId, name(部位名), color(UI色,如#1E90FF), description, sortOrder`
+- **SectionPart**：`id, sectionId, runnerName(板件名 A/B1), gateNo(剪口号), quantity, sortOrder`
 
-**统计口径（必须遵守，避免算错）：**
-- 某零件实际总数 = `Runner.count`（同款板件张数）× `Part.quantity`（单张上的数量）。总表统计以此为准。
-- `StepPart` 为多对多：一个剪口号零件可在多个步骤复用。
-- **以总表为权威数据源**；步骤映射可能不完整（说明书未必每步都标全），步骤各用量之和不要求与总表严格相等，UI 不做强一致校验。
+**口径：**
+- 取件表 = 部位列表，每部位 = 若干取件项（板件名 + 剪口号 + 数量）。
+- `quantity` 是「该部位需要该零件的个数」——对称件（如左右臂各一）自然计入（按部位组织后，模型能正确数出 ×2，实测有效）。
+- 板件名 `runnerName` 只是字符串标签（不单建板件表；颜色/张数等板件元信息 MVP 不做）。
 
-> 「整模型总表（核心）」= 按 Runner 聚合所有 Part 的视图；「按步骤分组（降级）」= 遍历 Step → StepPart 的视图。两者共用同一份底层零件数据，避免重复维护。
+> 两个展示视图共用同一份 Section/SectionPart 数据：
+> 「**按部位**（默认）」= Section → 按 runnerName 分组列剪口；
+> 「**按板件**」= 把所有 SectionPart 按 runnerName 透视 → 每板件下再按部位分组。
 
 ---
 
@@ -128,9 +128,9 @@ Grade (等级 HG/RG/MG/PG/SD)
 - 按型号名、型号编号、作品名搜索；支持模糊匹配；结果直达型号取件表页。
 
 **F8 取件表查看**
-- 型号详情页展示取件表，提供两种视图切换：
-  - **总表视图（核心）**：按板件分组，列出每板件颜色、所有剪口号与数量，含"零件总数"统计（按统计口径计算）；
-  - **步骤视图（降级）**：按拼装步骤顺序列出，每步显示页码与所需零件清单；若某型号步骤数据不完整，可仅提供总表视图。
+- 型号详情页展示取件表，**以部位为核心**，提供两种视图切换：
+  - **按部位（默认）**：每个部位（带颜色标）下，按板件分组列出剪口号与数量。
+  - **按板件**：每块板件下，再按部位分组列出剪口号与数量。
 - **不向普通用户展示原版 PDF 页面**（版权考量，原页仅管理员复核时可见）。
 - 响应式布局，移动端友好（拼装时多用手机/平板对照）。
 
@@ -256,83 +256,27 @@ Grade (等级 HG/RG/MG/PG/SD)
 
 ## 附录 B：识别提取 JSON Schema（F2 约定）
 
-> 多模态模型须通过结构化输出（tool / JSON Schema）返回此结构，保证可解析。字段与第四节数据模型对齐。
+> 视觉模型须返回此结构（以部位为核心），用 Zod 校验。代码：`src/lib/recognize/schema.ts`。
 
 ```json
 {
-  "type": "object",
-  "required": ["modelKit", "runners"],
-  "properties": {
-    "modelKit": {
-      "type": "object",
-      "properties": {
-        "name":  { "type": "string", "description": "型号名称，如 RX-78-2 高达" },
-        "code":  { "type": "string", "description": "型号编号，可空" },
-        "scale": { "type": "string", "description": "比例，如 1/144，可空" }
-      }
-    },
-    "runners": {
-      "type": "array",
-      "description": "板件列表（核心，准确率优先）",
-      "items": {
-        "type": "object",
-        "required": ["label", "parts"],
-        "properties": {
-          "label": { "type": "string", "description": "板件编号，如 A / B / C" },
-          "color": { "type": "string", "description": "注塑颜色，如 白 / 灰，可空" },
-          "count": { "type": "integer", "description": "同款板件张数，默认 1" },
-          "parts": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["gateNo", "quantity"],
-              "properties": {
-                "gateNo":   { "type": "string",  "description": "剪口编号，如 A-3" },
-                "quantity": { "type": "integer", "description": "单张板件上该零件数量" },
-                "note":     { "type": "string",  "description": "备注，可空" }
-              }
-            }
-          }
-        }
-      }
-    },
-    "steps": {
-      "type": "array",
-      "description": "拼装步骤（降级：尽力而为，可为空数组）",
-      "items": {
-        "type": "object",
-        "required": ["stepNo", "parts"],
-        "properties": {
-          "stepNo": { "type": "integer", "description": "步骤序号" },
-          "pageNo": { "type": "integer", "description": "对应说明书页码，可空" },
-          "parts": {
-            "type": "array",
-            "description": "该步用到的零件",
-            "items": {
-              "type": "object",
-              "required": ["gateNo", "quantity"],
-              "properties": {
-                "gateNo":   { "type": "string",  "description": "引用 runners 中的剪口编号" },
-                "quantity": { "type": "integer", "description": "该步该零件用量" }
-              }
-            }
-          }
-        }
-      }
-    },
-    "confidence": {
-      "type": "object",
-      "description": "模型自评置信度，供复核排序参考",
-      "properties": {
-        "runners": { "type": "number", "description": "0~1" },
-        "steps":   { "type": "number", "description": "0~1" }
-      }
+  "modelKit": { "name": "型号名称", "code": "型号编号(可空)", "scale": "比例如1/144(可空)" },
+  "sections": [
+    {
+      "name": "头部",                 // 部位名(中文)
+      "color": "#1E90FF",            // 可选 UI 颜色
+      "parts": [
+        { "runnerName": "A", "gateNo": "26", "quantity": 1 },
+        { "runnerName": "B1", "gateNo": "13", "quantity": 1 }
+      ]
     }
-  }
+  ]
 }
 ```
 
-**落库映射说明：**
-- `steps[].parts[].gateNo` 通过剪口号关联到已入库的 `Part`，生成 `StepPart`；找不到对应零件时标记为"待复核"，不丢弃。
-- `confidence` 仅用于复核界面排序（低置信度优先人工查看），不写入业务表。
-- 长文档分页识别时，按页返回片段，后端合并同 `label` 板件、按 `stepNo` 归并步骤。
+**落库映射：**
+- `sections[]` → `Section`（name/color/sortOrder）；`sections[].parts[]` → `SectionPart`（runnerName/gateNo/quantity/sortOrder）。
+- 幂等：识别/导入时先清空该型号的 `Section` 再重建（`persistExtraction`）。
+- 两条识别路径（自动 Gemini / 手动导入 JSON）共用同一 Schema 与 `persistExtraction`。
+
+**实测基准（HG Mighty Strike Freedom, 1552.pdf, Gemini）**：约 2 分钟识别出 8 个部位（头/胸部/手臂/腰部/腿部/轨道炮/背包/武器），按部位组织后对称件 ×2 数量能正确计入。

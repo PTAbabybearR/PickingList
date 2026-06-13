@@ -1,0 +1,120 @@
+// PickingList 数据模型 —— 详见 PRD 第四节
+// SQLite(本地 MVP)。status 用 String(SQLite 无原生 enum),便于后期平滑迁移 Postgres。
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// 等级：HG / RG / MG / PG / SD ...
+model Grade {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  series    Series[]
+  createdAt DateTime @default(now())
+}
+
+// 作品系列：UC / SEED / 水星的魔女 ...（挂在某 Grade 下）
+model Series {
+  id        String     @id @default(cuid())
+  gradeId   String
+  grade     Grade      @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int        @default(0)
+  modelKits ModelKit[]
+  createdAt DateTime   @default(now())
+
+  @@index([gradeId])
+}
+
+// 具体型号
+model ModelKit {
+  id        String   @id @default(cuid())
+  seriesId  String
+  series    Series   @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  name      String
+  code      String? // 型号编号
+  scale     String? // 比例，如 1/144
+  boxArtKey String? // 盒绘图在存储适配器中的 key
+  status    String   @default("draft") // draft | published | archived
+  manuals   Manual[]
+  runners   Runner[]
+  steps     Step[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([seriesId])
+  @@index([status])
+}
+
+// 上传的 PDF 说明书 + 识别状态
+model Manual {
+  id              String    @id @default(cuid())
+  modelKitId      String
+  modelKit        ModelKit  @relation(fields: [modelKitId], references: [id], onDelete: Cascade)
+  pdfKey          String // 存储适配器中的 key（本地文件路径键）
+  pageCount       Int?
+  recognizeStatus String    @default("pending") // pending | processing | done | failed
+  recognizedAt    DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([modelKitId])
+}
+
+// 板件(Runner)：一整块塑料框
+model Runner {
+  id         String   @id @default(cuid())
+  modelKitId String
+  modelKit   ModelKit @relation(fields: [modelKitId], references: [id], onDelete: Cascade)
+  label      String // 板件编号 A / B / C
+  color      String?
+  count      Int      @default(1) // 同款板件张数
+  parts      Part[]
+  createdAt  DateTime @default(now())
+
+  @@index([modelKitId])
+}
+
+// 零件：板件上某个剪口
+model Part {
+  id        String     @id @default(cuid())
+  runnerId  String
+  runner    Runner     @relation(fields: [runnerId], references: [id], onDelete: Cascade)
+  gateNo    String // 剪口编号，如 A-3
+  quantity  Int        @default(1) // 单张板件上该零件数量
+  note      String?
+  reviewed  Boolean    @default(false) // 是否已人工复核
+  stepParts StepPart[]
+
+  @@index([runnerId])
+}
+
+// 拼装步骤
+model Step {
+  id         String     @id @default(cuid())
+  modelKitId String
+  modelKit   ModelKit   @relation(fields: [modelKitId], references: [id], onDelete: Cascade)
+  stepNo     Int
+  pageNo     Int?
+  stepParts  StepPart[]
+
+  @@index([modelKitId])
+}
+
+// 步骤-零件映射（多对多 + 用量）
+model StepPart {
+  id       String @id @default(cuid())
+  stepId   String
+  step     Step   @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  partId   String
+  part     Part   @relation(fields: [partId], references: [id], onDelete: Cascade)
+  quantity Int    @default(1)
+
+  @@index([stepId])
+  @@index([partId])
+}

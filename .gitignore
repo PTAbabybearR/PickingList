@@ -21,9 +21,13 @@ next-env.d.ts
 .env.test.local
 .env.production.local
 
-# Prisma
+# Prisma / SQLite
 /prisma/*.db
 /prisma/*.db-journal
+/dev.db
+/dev.db-journal
+*.db
+*.db-journal
 
 # Logs
 npm-debug.log*
@@ -46,3 +50,5 @@ Thumbs.db
 # Misc
 *.tsbuildinfo
 /coverage
+
+/src/generated/prisma

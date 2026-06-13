@@ -5,6 +5,9 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
+import { recognizeManual } from "@/lib/recognize";
+import { persistExtraction } from "@/lib/recognize/persist";
+import { ExtractionSchema } from "@/lib/recognize/schema";
 
 /** 新建型号 */
 export async function createKit(formData: FormData) {
@@ -59,6 +62,37 @@ export async function uploadManual(formData: FormData) {
       recognizeStatus: "pending",
     },
   });
+
+  revalidatePath(`/admin/kits/${modelKitId}`);
+}
+
+/** 路径2：自动识别（DeepSeek）。同步执行，完成后刷新页面。 */
+export async function recognizeManualAction(formData: FormData) {
+  const manualId = String(formData.get("manualId") ?? "").trim();
+  const modelKitId = String(formData.get("modelKitId") ?? "").trim();
+  if (!manualId || !modelKitId) throw new Error("缺少参数");
+
+  await recognizeManual(manualId);
+
+  revalidatePath(`/admin/kits/${modelKitId}`);
+}
+
+/** 路径1：手动导入识别 JSON（由 Claude Code 交互产出，粘贴入库）。 */
+export async function importExtractionAction(formData: FormData) {
+  const modelKitId = String(formData.get("modelKitId") ?? "").trim();
+  const json = String(formData.get("json") ?? "").trim();
+  if (!modelKitId) throw new Error("缺少型号 ID");
+  if (!json) throw new Error("请粘贴识别 JSON");
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error("JSON 解析失败，请检查格式");
+  }
+
+  const ext = ExtractionSchema.parse(parsed);
+  await persistExtraction(modelKitId, ext);
 
   revalidatePath(`/admin/kits/${modelKitId}`);
 }

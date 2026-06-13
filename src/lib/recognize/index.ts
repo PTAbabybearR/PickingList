@@ -1,0 +1,64 @@
+import { prisma } from "@/lib/db";
+import { getStorage } from "@/lib/storage";
+import { pdfToImages } from "./pdf";
+import { recognizeWithDeepSeek } from "./deepseek";
+import { persistExtraction, type PersistResult } from "./persist";
+import type { Extraction } from "./schema";
+
+const MAX_PAGES = Number(process.env.RECOGNITION_MAX_PAGES ?? "40");
+
+/** 识别提供商分发（适配器）。将来加 Claude/Gemini 在此扩展一个分支即可。 */
+function recognizeImages(images: Buffer[]): Promise<Extraction> {
+  const provider = process.env.LLM_PROVIDER ?? "deepseek";
+  switch (provider) {
+    case "deepseek":
+      return recognizeWithDeepSeek(images);
+    default:
+      throw new Error(`未支持的识别提供商: ${provider}`);
+  }
+}
+
+/**
+ * 自动识别一本说明书：读本地 PDF → 转图 → 视觉模型结构化提取 → 写入草稿。
+ * 更新 Manual.recognizeStatus：processing → done / failed。
+ */
+export async function recognizeManual(manualId: string): Promise<PersistResult> {
+  const manual = await prisma.manual.findUnique({ where: { id: manualId } });
+  if (!manual) throw new Error("说明书不存在");
+
+  await prisma.manual.update({
+    where: { id: manualId },
+    data: { recognizeStatus: "processing" },
+  });
+
+  try {
+    const pdf = await getStorage().read(manual.pdfKey);
+    const { images, totalPages, truncated } = await pdfToImages(pdf, {
+      maxPages: MAX_PAGES,
+    });
+    if (truncated) {
+      console.warn(
+        `[recognize] ${manual.pdfKey} 共 ${totalPages} 页，仅识别前 ${MAX_PAGES} 页`,
+      );
+    }
+
+    const ext = await recognizeImages(images);
+    const result = await persistExtraction(manual.modelKitId, ext);
+
+    await prisma.manual.update({
+      where: { id: manualId },
+      data: {
+        recognizeStatus: "done",
+        recognizedAt: new Date(),
+        pageCount: totalPages,
+      },
+    });
+    return result;
+  } catch (e) {
+    await prisma.manual.update({
+      where: { id: manualId },
+      data: { recognizeStatus: "failed" },
+    });
+    throw e;
+  }
+}

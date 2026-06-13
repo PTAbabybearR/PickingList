@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * 识别提取的结构化 Schema —— 对应 PRD 附录 B。
- * 用于 Claude 结构化输出，SDK 层自动校验。
+ * 提供商无关：手动导入(我/Claude Code 产出)与自动识别(DeepSeek)共用同一结构。
  */
 
 export const PartSchema = z.object({

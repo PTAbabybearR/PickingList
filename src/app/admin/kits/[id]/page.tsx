@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { recognizeManualAction, uploadManual } from "../actions";
+import { recognizeManualAction, uploadManual, setKitStatus } from "../actions";
 import { SubmitButton } from "@/app/admin/_components/submit-button";
 import { ImportJsonForm } from "./import-json-form";
 
@@ -64,11 +64,45 @@ export default async function KitDetailPage({
       </Link>
 
       <h1 className="mt-2 text-2xl font-bold">{kit.name}</h1>
-      <p className="mt-1 text-sm text-neutral-500">
-        {kit.series.grade.name} · {kit.series.name}
-        {kit.code ? ` · ${kit.code}` : ""}
-        {kit.scale ? ` · ${kit.scale}` : ""} · 状态 {kit.status}
-      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-neutral-500">
+        <span>
+          {kit.series.grade.name} · {kit.series.name}
+          {kit.code ? ` · ${kit.code}` : ""}
+          {kit.scale ? ` · ${kit.scale}` : ""}
+        </span>
+        <span
+          className={`rounded px-2 py-0.5 text-xs ${
+            kit.status === "published"
+              ? "bg-green-100 text-green-700"
+              : "bg-neutral-100 text-neutral-600"
+          }`}
+        >
+          {kit.status === "published" ? "已发布" : kit.status === "archived" ? "已下架" : "草稿"}
+        </span>
+        {kit.status !== "published" ? (
+          <form action={setKitStatus}>
+            <input type="hidden" name="modelKitId" value={kit.id} />
+            <input type="hidden" name="status" value="published" />
+            <SubmitButton
+              pendingText="…"
+              className="rounded border border-green-600 px-2 py-0.5 text-xs text-green-700 hover:bg-green-600 hover:text-white disabled:opacity-50"
+            >
+              发布
+            </SubmitButton>
+          </form>
+        ) : (
+          <form action={setKitStatus}>
+            <input type="hidden" name="modelKitId" value={kit.id} />
+            <input type="hidden" name="status" value="draft" />
+            <SubmitButton
+              pendingText="…"
+              className="rounded border border-neutral-400 px-2 py-0.5 text-xs text-neutral-600 hover:bg-neutral-200 disabled:opacity-50"
+            >
+              转草稿
+            </SubmitButton>
+          </form>
+        )}
+      </div>
 
       {/* 说明书 + 识别 */}
       <section className="mt-10">
@@ -113,12 +147,20 @@ export default async function KitDetailPage({
       {/* 取件表（部位为核心，两视图切换） */}
       <section className="mt-12">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">取件表（草稿）</h2>
-          {sections.length > 0 && (
-            <div className="text-xs text-neutral-500">
-              {sections.length} 部位 · {itemCount} 取件项 · 总数 {totalQty}
-            </div>
-          )}
+          <h2 className="text-lg font-semibold">取件表</h2>
+          <div className="flex items-center gap-3">
+            {sections.length > 0 && (
+              <span className="text-xs text-neutral-500">
+                {sections.length} 部位 · {itemCount} 取件项 · 总数 {totalQty}
+              </span>
+            )}
+            <Link
+              href={`/admin/kits/${kit.id}/edit`}
+              className="rounded-lg border border-neutral-900 px-3 py-1.5 text-xs font-medium hover:bg-neutral-900 hover:text-white"
+            >
+              {sections.length > 0 ? "编辑 / 复核" : "手动编辑"}
+            </Link>
+          </div>
         </div>
 
         {sections.length === 0 ? (

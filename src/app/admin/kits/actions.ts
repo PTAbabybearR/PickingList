@@ -96,3 +96,35 @@ export async function importExtractionAction(formData: FormData) {
 
   revalidatePath(`/admin/kits/${modelKitId}`);
 }
+
+/** 复核界面保存：整体替换取件表（编辑器序列化的 Extraction JSON）。 */
+export async function saveScheme(formData: FormData) {
+  const modelKitId = String(formData.get("modelKitId") ?? "").trim();
+  const json = String(formData.get("json") ?? "").trim();
+  if (!modelKitId) throw new Error("缺少型号 ID");
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error("数据格式错误");
+  }
+
+  const ext = ExtractionSchema.parse(parsed);
+  await persistExtraction(modelKitId, ext);
+
+  revalidatePath(`/admin/kits/${modelKitId}`);
+  redirect(`/admin/kits/${modelKitId}`);
+}
+
+/** 发布 / 下架 / 转草稿 */
+export async function setKitStatus(formData: FormData) {
+  const modelKitId = String(formData.get("modelKitId") ?? "").trim();
+  const status = String(formData.get("status") ?? "").trim();
+  if (!modelKitId) throw new Error("缺少型号 ID");
+  if (!["draft", "published", "archived"].includes(status)) {
+    throw new Error("非法状态");
+  }
+  await prisma.modelKit.update({ where: { id: modelKitId }, data: { status } });
+  revalidatePath(`/admin/kits/${modelKitId}`);
+}

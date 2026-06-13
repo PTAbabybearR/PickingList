@@ -29,6 +29,7 @@ model Series {
   modelKits ModelKit[]
   createdAt DateTime   @default(now())
 
+  @@unique([gradeId, name])
   @@index([gradeId])
 }
 

@@ -7,14 +7,27 @@ export default function AdminHome() {
         ← 返回首页
       </Link>
       <h1 className="mt-4 text-2xl font-bold">管理员控制台</h1>
-      <p className="mt-2 text-neutral-600">骨架占位。后续在此实现：</p>
-      <ol className="mt-4 list-decimal space-y-1 pl-6 text-sm text-neutral-700">
-        <li>登录鉴权（单管理员凭据）</li>
-        <li>新建/选择型号、上传 PDF（存本地）</li>
-        <li>触发 Claude 识别（进程内后台任务）</li>
-        <li>复核界面：左侧 PDF 原页 · 右侧结构化数据</li>
-        <li>发布 / 下架、分类管理</li>
-      </ol>
+
+      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        <Link
+          href="/admin/kits"
+          className="rounded-xl border border-neutral-200 bg-white p-5 transition hover:border-neutral-400"
+        >
+          <div className="text-lg font-semibold">型号管理</div>
+          <p className="mt-1 text-sm text-neutral-600">
+            新建型号 · 上传 PDF 说明书
+          </p>
+        </Link>
+
+        <div className="rounded-xl border border-dashed border-neutral-300 bg-white/50 p-5">
+          <div className="text-lg font-semibold text-neutral-400">识别 / 复核（待建）</div>
+          <p className="mt-1 text-sm text-neutral-500">Claude 识别 · 复核 · 发布</p>
+        </div>
+      </div>
+
+      <p className="mt-8 text-xs text-neutral-400">
+        注：MVP 暂未接入登录鉴权（后续补）。
+      </p>
     </main>
   );
 }

@@ -1,28 +1,6 @@
 import OpenAI from "openai";
 import { ExtractionSchema, type Extraction } from "./schema";
-
-const PROMPT = `你是一名高达/机甲拼装模型(Gunpla)说明书解析助手。下面是一本官方说明书的逐页图片。
-请提取"取件表"数据，并**只**返回一个 JSON 对象，不要任何额外文字。JSON 结构如下：
-
-{
-  "modelKit": { "name": "型号名称", "code": "型号编号(可空)", "scale": "比例如1/144(可空)" },
-  "runners": [            // 板件列表(核心，准确率优先)
-    {
-      "label": "板件编号 如 A",
-      "color": "注塑颜色(可空)",
-      "count": 1,         // 同款板件张数
-      "parts": [ { "gateNo": "剪口编号 如 A-3", "quantity": 1, "note": "备注(可空)" } ]
-    }
-  ],
-  "steps": [              // 拼装步骤(尽力而为，识别困难时可为空数组 [])
-    { "stepNo": 1, "pageNo": 3, "parts": [ { "gateNo": "A-3", "quantity": 1 } ] }
-  ]
-}
-
-要求：
-- 板件与剪口号尽量准确、完整；数量为整数。
-- 步骤为装配示意图，难识别；不确定时宁缺勿错，可返回空数组。
-- 仅依据图片内容，不要臆造。`;
+import { RECOGNIZE_PROMPT as PROMPT } from "./prompt";
 
 export function createDeepSeekClient(): OpenAI {
   return new OpenAI({
@@ -45,12 +23,24 @@ export async function recognizeWithDeepSeek(images: Buffer[]): Promise<Extractio
     ),
   ];
 
-  const res = await client.chat.completions.create({
-    model,
-    messages: [{ role: "user", content }],
-    response_format: { type: "json_object" },
-    max_tokens: 8192,
-  });
+  let res;
+  try {
+    res = await client.chat.completions.create({
+      model,
+      messages: [{ role: "user", content }],
+      response_format: { type: "json_object" },
+      max_tokens: 8192,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("image_url") || msg.includes("image")) {
+      throw new Error(
+        "DeepSeek API 不支持图片输入（已实测其 OpenAI/Anthropic 兼容口均不处理图片）。" +
+          "说明书是图片，无法用 DeepSeek 自动识别。请改用支持视觉的模型（如 Qwen-VL / GLM-4V / Gemini / Claude API），或使用「导入识别 JSON」手动录入。",
+      );
+    }
+    throw e;
+  }
 
   const text = res.choices[0]?.message?.content;
   if (!text) throw new Error("DeepSeek 未返回内容");

@@ -2,15 +2,18 @@ import { prisma } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
 import { pdfToImages } from "./pdf";
 import { recognizeWithDeepSeek } from "./deepseek";
+import { recognizeWithGemini } from "./gemini";
 import { persistExtraction, type PersistResult } from "./persist";
 import type { Extraction } from "./schema";
 
 const MAX_PAGES = Number(process.env.RECOGNITION_MAX_PAGES ?? "40");
 
-/** 识别提供商分发（适配器）。将来加 Claude/Gemini 在此扩展一个分支即可。 */
+/** 识别提供商分发（适配器）。新增 provider 在此加一个分支即可。 */
 function recognizeImages(images: Buffer[]): Promise<Extraction> {
-  const provider = process.env.LLM_PROVIDER ?? "deepseek";
+  const provider = process.env.LLM_PROVIDER ?? "gemini";
   switch (provider) {
+    case "gemini":
+      return recognizeWithGemini(images);
     case "deepseek":
       return recognizeWithDeepSeek(images);
     default:

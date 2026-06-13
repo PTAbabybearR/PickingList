@@ -149,11 +149,13 @@ Grade (等级 HG/RG/MG/PG/SD)
 - **识别服务（视觉模型，适配器可插拔）**：`src/lib/recognize/`，`LLM_PROVIDER` 选择 provider，新增 provider 只加一个分支。
   - **当前：Gemini**（Google AI Studio，免费额度 + 视觉），走其 **OpenAI 兼容口**（`openai` SDK + `image_url` 图片输入），模型 `gemini-2.5-flash`。
   - **⚠️ DeepSeek 不可用（已实测）**：其 OpenAI 兼容口 400 拒绝 `image_url`、Anthropic 兼容口把图片当 `[Unsupported Image]` 不处理——**纯文本 API，读不了说明书图片**。代码留 DeepSeek 分支但对图片报清晰错。
-  - **PDF→逐页图片**：用 `pdf-to-img`（底层 pdfjs + 原生 canvas，纯 JS 无系统依赖）把 PDF 渲染为 PNG（scale 3），再以 `image_url` base64 发模型。`pdf-to-img`/`@napi-rs/canvas` 列入 `serverExternalPackages` 且动态 import（避免打包期求值）。`RECOGNITION_MAX_PAGES` 限页控成本。
+  - **PDF→高倍渲染+切块（关键，决定准确率）**：用 `pdf-to-img`（pdfjs+canvas，纯 JS 无系统依赖）按 `RECOGNITION_SCALE`(默认6) 渲染每页，再用 `sharp` 切成 `COLS×ROWS`(默认2×2，带重叠) 小块发模型。**原因**：视觉模型把单张大图压到约 3072px，整页里的小剪口号会被压没；切块后每块不被压缩，小字以全分辨率进模型。相关包列入 `serverExternalPackages` 且动态 import。`RECOGNITION_MAX_PAGES` 限页控成本。
   - **结构化输出**：`response_format: json_object` + 提示词给出 Schema，返回后用 Zod（附录 B 的 `ExtractionSchema`）校验。
   - **注意 Gemini 思考型模型**：`max_tokens` 要给足（如 32768），否则思考耗尽预算导致 JSON 被截断。
-  - **⚠️ 已知识别短板（实测）**：整页输入下，**左右对称件的数量易被算成 1（漏 ×2）**，剪口号最大值偶有偏差。→ **复核环节必须能改数量**；未来要更准可考虑"按板件裁成单图再识别"。
-  - **实测基准**（HG Mighty Strike Freedom，6 页 1552.pdf）：Gemini 约 2 分钟识别出 13 板件 / 165 零件 / 50 步骤，型号/板件/颜色/步骤基本正确；对称件数量需人工修。
+  - **⚠️ DeepSeek/Pro 限制（实测）**：`gemini-2.5-pro` 免费层 429 不可用；用免费 `gemini-2.5-flash` + 切块即可。
+  - **准确率实测**（对 dammiz 同款 491 为基准，135 种零件）：
+    - 整页 flash@scale3：精确 **70%** / 召回 **54%** / 数量全对 30/73 —— 不可用。
+    - **切块 flash@scale6 2×2：精确 94% / 召回 92% / 数量全对 96/124** —— 可用，剩余交人工复核。对称件 ×2 数量在按部位 + 切块下也基本数对。
 - **后台任务（MVP：进程内）**：本地单机运行，识别作为**进程内任务**执行（当前 Server Action 内同步 await，单次约 1–2 分钟），前端按钮显示 pending。托管队列（Inngest / Trigger.dev）留待迁移云部署时再引入。
 - **鉴权**：管理员用 NextAuth（单管理员也可简化为凭据 + 签名 Cookie）；普通用户路由无需鉴权。
 - **运行/部署**：**MVP 本地 / 单机自托管**（需持久磁盘存 PDF）+ 本地或托管 Postgres。云部署（Vercel + 云存储 + 托管队列）留待后期，借助存储适配器平滑迁移。
@@ -279,4 +281,4 @@ Grade (等级 HG/RG/MG/PG/SD)
 - 幂等：识别/导入时先清空该型号的 `Section` 再重建（`persistExtraction`）。
 - 两条识别路径（自动 Gemini / 手动导入 JSON）共用同一 Schema 与 `persistExtraction`。
 
-**实测基准（HG Mighty Strike Freedom, 1552.pdf, Gemini）**：约 2 分钟识别出 8 个部位（头/胸部/手臂/腰部/腿部/轨道炮/背包/武器），按部位组织后对称件 ×2 数量能正确计入。
+**实测基准（HG Mighty Strike Freedom, 1552.pdf, Gemini flash + 切块）**：识别出 8 个部位（头/胸部/手臂/腰部/腿部/轨道炮/背包/武器）；对 dammiz 同款 491 为基准，精确 94% / 召回 92%（详见第六节）。

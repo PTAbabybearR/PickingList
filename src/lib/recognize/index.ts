@@ -1,12 +1,15 @@
 import { prisma } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
-import { pdfToImages } from "./pdf";
+import { pdfToTiles } from "./pdf";
 import { recognizeWithDeepSeek } from "./deepseek";
 import { recognizeWithGemini } from "./gemini";
 import { persistExtraction, type PersistResult } from "./persist";
 import type { Extraction } from "./schema";
 
 const MAX_PAGES = Number(process.env.RECOGNITION_MAX_PAGES ?? "40");
+const SCALE = Number(process.env.RECOGNITION_SCALE ?? "6");
+const TILE_COLS = Number(process.env.RECOGNITION_TILE_COLS ?? "2");
+const TILE_ROWS = Number(process.env.RECOGNITION_TILE_ROWS ?? "2");
 
 /** 识别提供商分发（适配器）。新增 provider 在此加一个分支即可。 */
 function recognizeImages(images: Buffer[]): Promise<Extraction> {
@@ -36,8 +39,11 @@ export async function recognizeManual(manualId: string): Promise<PersistResult> 
 
   try {
     const pdf = await getStorage().read(manual.pdfKey);
-    const { images, totalPages, truncated } = await pdfToImages(pdf, {
-      scale: 3, // 更高清晰度利于读小号剪口号
+    // 高倍渲染 + 切块：避免整页被模型压缩丢失小剪口号（实测准确率大幅提升）
+    const { images, totalPages, truncated } = await pdfToTiles(pdf, {
+      scale: SCALE,
+      cols: TILE_COLS,
+      rows: TILE_ROWS,
       maxPages: MAX_PAGES,
     });
     if (truncated) {

@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     },
   },
   // PDF 转图依赖(含原生 canvas)不打包，运行时按 node 模块加载
-  serverExternalPackages: ["pdf-to-img", "pdfjs-dist", "@napi-rs/canvas"],
+  serverExternalPackages: ["pdf-to-img", "pdfjs-dist", "@napi-rs/canvas", "sharp"],
 };
 
 export default nextConfig;

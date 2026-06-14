@@ -3,12 +3,13 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { signSession, COOKIE } from "@/lib/auth";
+import { verifyPassword } from "@/lib/password";
 
 export async function login(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const from = String(formData.get("from") ?? "/admin");
 
-  if (password !== (process.env.ADMIN_PASSWORD ?? "")) {
+  if (!verifyPassword(password, process.env.ADMIN_PASSWORD_HASH ?? "")) {
     redirect(`/login?error=1&from=${encodeURIComponent(from)}`);
   }
 

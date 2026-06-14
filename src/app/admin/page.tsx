@@ -1,11 +1,23 @@
 import Link from "next/link";
+import { logout } from "@/app/login/actions";
+import { SubmitButton } from "@/app/admin/_components/submit-button";
 
 export default function AdminHome() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link href="/" className="text-sm text-neutral-500 hover:text-neutral-800">
-        ← 返回首页
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link href="/" className="text-sm text-neutral-500 hover:text-neutral-800">
+          ← 返回首页
+        </Link>
+        <form action={logout}>
+          <SubmitButton
+            pendingText="…"
+            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs text-neutral-600 hover:bg-neutral-100 disabled:opacity-50"
+          >
+            退出登录
+          </SubmitButton>
+        </form>
+      </div>
       <h1 className="mt-4 text-2xl font-bold">管理员控制台</h1>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -25,9 +37,6 @@ export default function AdminHome() {
         </div>
       </div>
 
-      <p className="mt-8 text-xs text-neutral-400">
-        注：MVP 暂未接入登录鉴权（后续补）。
-      </p>
     </main>
   );
 }

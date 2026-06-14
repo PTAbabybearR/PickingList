@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { recognizeManualAction, uploadManual, setKitStatus } from "../actions";
 import { SubmitButton } from "@/app/admin/_components/submit-button";
 import { ImportJsonForm } from "./import-json-form";
+import { PickingTable } from "@/components/picking-table";
 
 export const dynamic = "force-dynamic";
 
@@ -13,17 +14,6 @@ const STATUS_LABEL: Record<string, string> = {
   done: "已识别",
   failed: "识别失败",
 };
-
-type PartLite = { runnerName: string; gateNo: string; quantity: number };
-
-// 自然排序：A, B1, B2, C … / 剪口 2 在 13 前
-function natCmp(a: string, b: string) {
-  return a.localeCompare(b, "en", { numeric: true });
-}
-
-function fmtPart(p: PartLite) {
-  return p.quantity > 1 ? `${p.gateNo}×${p.quantity}` : p.gateNo;
-}
 
 export default async function KitDetailPage({
   params,
@@ -72,9 +62,7 @@ export default async function KitDetailPage({
         </span>
         <span
           className={`rounded px-2 py-0.5 text-xs ${
-            kit.status === "published"
-              ? "bg-green-100 text-green-700"
-              : "bg-neutral-100 text-neutral-600"
+            kit.status === "published" ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-600"
           }`}
         >
           {kit.status === "published" ? "已发布" : kit.status === "archived" ? "已下架" : "草稿"}
@@ -107,7 +95,6 @@ export default async function KitDetailPage({
       {/* 说明书 + 识别 */}
       <section className="mt-10">
         <h2 className="text-lg font-semibold">说明书</h2>
-
         {kit.manuals.length === 0 ? (
           <p className="mt-2 text-sm text-neutral-500">还没有上传说明书。</p>
         ) : (
@@ -140,11 +127,10 @@ export default async function KitDetailPage({
             ))}
           </ul>
         )}
-
         <UploadForm modelKitId={kit.id} />
       </section>
 
-      {/* 取件表（部位为核心，两视图切换） */}
+      {/* 取件表 */}
       <section className="mt-12">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">取件表</h2>
@@ -168,31 +154,9 @@ export default async function KitDetailPage({
             尚无取件表数据。点上方「开始识别」自动识别，或在下方导入 JSON。
           </p>
         ) : (
-          <>
-            {/* 视图切换 */}
-            <div className="mt-3 inline-flex rounded-lg border border-neutral-200 bg-white p-0.5 text-sm">
-              <Link
-                href={`/admin/kits/${kit.id}`}
-                className={`rounded-md px-3 py-1 ${!byRunner ? "bg-neutral-900 text-white" : "text-neutral-600"}`}
-              >
-                按部位
-              </Link>
-              <Link
-                href={`/admin/kits/${kit.id}?view=runner`}
-                className={`rounded-md px-3 py-1 ${byRunner ? "bg-neutral-900 text-white" : "text-neutral-600"}`}
-              >
-                按板件
-              </Link>
-            </div>
-
-            <div className="mt-4">
-              {byRunner ? (
-                <RunnerView sections={sections} />
-              ) : (
-                <SectionView sections={sections} />
-              )}
-            </div>
-          </>
+          <div className="mt-3">
+            <PickingTable sections={sections} basePath={`/admin/kits/${kit.id}`} byRunner={byRunner} />
+          </div>
         )}
 
         <details className="mt-6 rounded-xl border border-dashed border-neutral-300 bg-white p-4">
@@ -203,108 +167,6 @@ export default async function KitDetailPage({
         </details>
       </section>
     </main>
-  );
-}
-
-// 按部位：每个部位下按板件分组列出剪口
-function SectionView({
-  sections,
-}: {
-  sections: { id: string; name: string; color: string | null; parts: PartLite[] }[];
-}) {
-  return (
-    <div className="space-y-3">
-      {sections.map((s) => {
-        const byRunner = new Map<string, PartLite[]>();
-        for (const p of s.parts) {
-          if (!byRunner.has(p.runnerName)) byRunner.set(p.runnerName, []);
-          byRunner.get(p.runnerName)!.push(p);
-        }
-        const runners = [...byRunner.keys()].sort(natCmp);
-        return (
-          <div key={s.id} className="rounded-xl border border-neutral-200 bg-white">
-            <div className="flex items-center gap-2 border-b border-neutral-100 px-4 py-2.5">
-              <span
-                className="inline-block h-3 w-3 rounded-full"
-                style={{ background: s.color ?? "#999" }}
-              />
-              <span className="font-medium">{s.name}</span>
-              <span className="text-xs text-neutral-400">
-                {s.parts.reduce((m, p) => m + p.quantity, 0)} 件
-              </span>
-            </div>
-            <div className="space-y-1.5 px-4 py-3 text-sm">
-              {runners.map((rn) => (
-                <div key={rn} className="flex gap-2">
-                  <span className="w-10 shrink-0 font-mono font-medium text-neutral-700">
-                    {rn}
-                  </span>
-                  <span className="text-neutral-600">
-                    {byRunner.get(rn)!.map(fmtPart).join("、")}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// 按板件：每块板件下按部位分组列出剪口
-function RunnerView({
-  sections,
-}: {
-  sections: { name: string; color: string | null; parts: PartLite[] }[];
-}) {
-  // runnerName -> [{sectionName, color, parts[]}]
-  const map = new Map<string, { name: string; color: string | null; parts: PartLite[] }[]>();
-  for (const s of sections) {
-    const perRunner = new Map<string, PartLite[]>();
-    for (const p of s.parts) {
-      if (!perRunner.has(p.runnerName)) perRunner.set(p.runnerName, []);
-      perRunner.get(p.runnerName)!.push(p);
-    }
-    for (const [rn, parts] of perRunner) {
-      if (!map.has(rn)) map.set(rn, []);
-      map.get(rn)!.push({ name: s.name, color: s.color, parts });
-    }
-  }
-  const runners = [...map.keys()].sort(natCmp);
-
-  return (
-    <div className="space-y-3">
-      {runners.map((rn) => {
-        const groups = map.get(rn)!;
-        const qty = groups.reduce(
-          (m, g) => m + g.parts.reduce((k, p) => k + p.quantity, 0),
-          0,
-        );
-        return (
-          <div key={rn} className="rounded-xl border border-neutral-200 bg-white">
-            <div className="flex items-center gap-2 border-b border-neutral-100 px-4 py-2.5">
-              <span className="font-mono font-semibold">{rn}</span>
-              <span className="text-xs text-neutral-400">板件 · {qty} 件</span>
-            </div>
-            <div className="space-y-1.5 px-4 py-3 text-sm">
-              {groups.map((g, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="flex w-16 shrink-0 items-center gap-1 text-neutral-700">
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-full"
-                      style={{ background: g.color ?? "#999" }}
-                    />
-                    {g.name}
-                  </span>
-                  <span className="text-neutral-600">{g.parts.map(fmtPart).join("、")}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 

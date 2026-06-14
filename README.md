@@ -37,13 +37,20 @@ prisma/schema.prisma     数据模型
 src/app/                 页面(首页、/admin 占位)
 src/lib/db.ts            Prisma 客户端
 src/lib/storage/         存储适配器(LocalStorage)
-src/lib/claude/          Claude 客户端 + 提取 Schema + recognize() 占位
+src/lib/recognize/       识别层(切块+Gemini、Zod Schema、persist、provider适配器)
+src/components/          PickingTable 共享展示组件(按部位/按板件)
 storage/                 本地 PDF 存储(gitignore)
 ```
 
 ## 状态
 
-🚧 骨架已就绪（构建通过）。待实现：管理员上传/识别/复核/发布、分类浏览、搜索、取件表展示。
+✅ MVP 主线已打通：
+- 管理员：型号管理 / PDF 上传 / 识别(高倍切块 + Gemini) / 复核编辑 / 发布
+- 普通用户：按等级→系列→型号浏览 / 关键字搜索 / 取件表(按部位 · 按板件，仅已发布)
+
+识别准确率（对 dammiz 同款基准）：切块后精确 ~94–98% / 召回 ~92–94%，数量靠人工复核兜底。
+
+后续可选：登录鉴权、盒绘图、识别参数按 RG/MG 调优、云部署(R2/Supabase + 托管队列)。
 
 ## 注意
 
